@@ -1,88 +1,107 @@
 # preprocess_data.py
-# This script converts an object detection dataset (images + XML files from labelImg)
-# into a classification dataset with a clean folder structure.
+# This script reads images and their corresponding LabelImg XML annotations,
+# crops the objects, and saves them into a structured dataset directory.
 
 import os
 import cv2
-import xml.et.ree.ElementTree as ET
-from glob import glob
+import xml.etree.ElementTree as ET
+from sklearn.model_selection import train_test_split
 
 # --- Configuration ---
-SOURCE_DATA_DIR = 'train' 
-DESTINATION_DATA_DIR = 'waste_dataset'
-CLASSES = ['wet_waste', 'dry_waste']
+RAW_DATA_DIR = 'raw_dataset'
+PROCESSED_DATA_DIR = 'waste_dataset'
+IMAGE_SIZE = (128, 128) # The size to resize cropped images to.
 
-def process_dataset():
-    """
-    Reads XML files, crops corresponding images based on bounding box data,
-    and saves them into the correct class subfolders.
-    """
-    print("Starting dataset preprocessing...")
-    print(f"Source Directory: '{SOURCE_DATA_DIR}'")
-    print(f"Destination Directory: '{DESTINATION_DATA_DIR}'")
+def parse_xml(xml_file):
+    """Parses a LabelImg XML file to get bounding box coordinates and labels."""
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+    objects_data = []
+    for member in root.findall('object'):
+        label = member.find('name').text
+        bndbox = member.find('bndbox')
+        xmin = int(bndbox.find('xmin').text)
+        ymin = int(bndbox.find('ymin').text)
+        xmax = int(bndbox.find('xmax').text)
+        ymax = int(bndbox.find('ymax').text)
+        objects_data.append({'label': label, 'box': [xmin, ymin, xmax, ymax]})
+    return objects_data
 
-    # 1. Create destination directories
-    if not os.path.exists(DESTINATION_DATA_DIR):
-        os.makedirs(DESTINATION_DATA_DIR)
-    for class_name in CLASSES:
-        class_path = os.path.join(DESTINATION_DATA_DIR, class_name)
-        if not os.path.exists(class_path):
-            os.makedirs(class_path)
+def main():
+    """Main function to orchestrate the data preprocessing."""
+    print("Starting data preprocessing...")
 
-    # 2. Find all XML annotation files
-    xml_files = glob(os.path.join(SOURCE_DATA_DIR, '*.xml'))
-    if not xml_files:
-        print(f"Error: No .xml files found in '{SOURCE_DATA_DIR}'. Please check the path.")
+    # --- 1. Create Processed Data Directories ---
+    if not os.path.exists(PROCESSED_DATA_DIR):
+        os.makedirs(PROCESSED_DATA_DIR)
+        print(f"Created directory: {PROCESSED_DATA_DIR}")
+    else:
+        print(f"Directory already exists: {PROCESSED_DATA_DIR}")
+
+    # --- 2. Find and Process Raw Data ---
+    if not os.path.exists(RAW_DATA_DIR):
+        print(f"Error: Raw data directory '{RAW_DATA_DIR}' not found.")
+        print("Please create it and place 'wet' and 'dry' subfolders inside.")
         return
 
-    print(f"\nFound {len(xml_files)} XML files to process.")
+    all_image_paths = []
+    for class_name in os.listdir(RAW_DATA_DIR):
+        class_dir = os.path.join(RAW_DATA_DIR, class_name)
+        if os.path.isdir(class_dir):
+            for filename in os.listdir(class_dir):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    all_image_paths.append(os.path.join(class_dir, filename))
+
+    if not all_image_paths:
+        print("Error: No images found in the raw_dataset directory.")
+        return
+
+    print(f"Found {len(all_image_paths)} images to process.")
     
-    processed_count = 0
-    # 3. Loop through each XML file
-    for xml_file in xml_files:
-        try:
-            tree = ET.parse(xml_file)
-            root = tree.getroot()
+    # --- 3. Crop Objects and Save ---
+    for image_path in all_image_paths:
+        # Construct path to the corresponding XML file
+        xml_path = os.path.splitext(image_path)[0] + '.xml'
+        
+        if not os.path.exists(xml_path):
+            print(f"Warning: XML file not found for {os.path.basename(image_path)}. Skipping.")
+            continue
 
-            image_filename = root.find('filename').text
-            image_path = os.path.join(SOURCE_DATA_DIR, image_filename)
+        # Read the main image
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"Warning: Could not read image {os.path.basename(image_path)}. Skipping.")
+            continue
 
-            if not os.path.exists(image_path):
-                print(f"Warning: Image file not found for {xml_file}. Skipping.")
-                continue
+        # Parse the XML to get object data
+        objects = parse_xml(xml_path)
+        
+        for i, obj in enumerate(objects):
+            label = obj['label']
+            box = obj['box']
+            
+            # Create the destination directory for the class if it doesn't exist
+            output_dir = os.path.join(PROCESSED_DATA_DIR, label)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
 
-            image = cv2.imread(image_path)
-            if image is None:
-                print(f"Warning: Could not read image {image_path}. Skipping.")
-                continue
+            # Crop the object from the main image using bounding box coordinates
+            cropped_image = image[box[1]:box[3], box[0]:box[2]]
+            
+            # Resize the cropped image to a standard size
+            resized_image = cv2.resize(cropped_image, IMAGE_SIZE)
 
-            # Find all 'object' tags
-            for member in root.findall('object'):
-                class_name = member.find('name').text
-                if class_name not in CLASSES:
-                    print(f"Warning: Unknown class '{class_name}' in {xml_file}. Skipping.")
-                    continue
+            # Create a unique filename for the cropped image
+            base_filename = os.path.splitext(os.path.basename(image_path))[0]
+            output_filename = f"{base_filename}_{label}_{i}.jpg"
+            output_path = os.path.join(output_dir, output_filename)
+            
+            # Save the processed image
+            cv2.imwrite(output_path, resized_image)
 
-                bndbox = member.find('bndbox')
-                xmin = int(bndbox.find('xmin').text)
-                ymin = int(bndbox.find('ymin').text)
-                xmax = int(bndbox.find('xmax').text)
-                ymax = int(bndbox.find('ymax').text)
-
-                # Crop the image and save it
-                cropped_image = image[ymin:ymax, xmin:xmax]
-                base_filename = os.path.splitext(os.path.basename(image_filename))[0]
-                output_filename = f"{base_filename}_cropped_{processed_count}.jpg"
-                output_path = os.path.join(DESTINATION_DATA_DIR, class_name, output_filename)
-                cv2.imwrite(output_path, cropped_image)
-                processed_count += 1
-                
-        except Exception as e:
-            print(f"Error processing file {xml_file}: {e}")
-
-    print(f"\nPreprocessing complete. Saved {processed_count} cropped images into '{DESTINATION_DATA_DIR}'.")
-    print("You can now run the training script.")
+    print("\nPreprocessing complete!")
+    print(f"Cropped and resized images are saved in '{PROCESSED_DATA_DIR}'.")
+    print("You are now ready to run the training script.")
 
 if __name__ == '__main__':
-    process_dataset()
-
+    main()
