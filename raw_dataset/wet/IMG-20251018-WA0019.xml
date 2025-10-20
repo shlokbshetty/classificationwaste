@@ -1,0 +1,26 @@
+<annotation>
+	<folder>wet</folder>
+	<filename>IMG-20251018-WA0019.jpg</filename>
+	<path>C:\Users\shett\github\classificationwaste\waste_dataset\wet\IMG-20251018-WA0019.jpg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>750</width>
+		<height>1000</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>wet</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>244</xmin>
+			<ymin>205</ymin>
+			<xmax>495</xmax>
+			<ymax>898</ymax>
+		</bndbox>
+	</object>
+</annotation>
